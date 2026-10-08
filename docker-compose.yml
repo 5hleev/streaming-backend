@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: streaming
+      POSTGRES_USER: streaming
+      POSTGRES_PASSWORD: streaming
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    ports: ["5432:5432"]
+
+  app:
+    build: ./docker/php
+    env_file: .env
+    volumes:
+      - .:/var/www
+    depends_on: [db]
+
+  nginx:
+    image: nginx:1.27
+    ports: ["8080:80"]
+    volumes:
+      - .:/var/www
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [app]
+
+  worker:
+    build: ./docker/php
+    env_file: .env
+    command: php bin/worker.php
+    volumes:
+      - .:/var/www
+    depends_on: [db]
+
+volumes:
+  pgdata:

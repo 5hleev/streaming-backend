@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Демо: стриминг-сервис</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #fff; --text: #1c1e21; --muted: #6b7280;
+    --line: #e2e5ea; --accent: #2563eb; --ok: #15803d; --err: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14161a; --card: #1e2127; --text: #e8eaed; --muted: #9aa0aa; --line: #2e333b; --accent: #5b8def; --ok: #4ade80; --err: #f87171; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; background: var(--card); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; }
+  main { max-width: 1000px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  input, select, button { font: inherit; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  button { cursor: pointer; background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.secondary { background: transparent; color: var(--text); border-color: var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row > input { flex: 1 1 160px; min-width: 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  #status { min-height: 40px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); }
+  #status.ok { border-color: var(--ok); color: var(--ok); }
+  #status.err { border-color: var(--err); color: var(--err); }
+  .items { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .item { border: 1px solid var(--line); border-radius: 9px; padding: 12px; display: grid; gap: 6px; align-content: start; }
+  .item h3 { margin: 0; font-size: 15px; }
+  .badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .badge.free { color: var(--ok); border-color: var(--ok); }
+  video { width: 100%; max-height: 460px; background: #000; border-radius: 8px; }
+  .grid { display: grid; gap: 8px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Демо стриминг-сервиса</h1>
+  <div id="whoami" class="muted">Не авторизован</div>
+</header>
+
+<main>
+  <div id="status" role="status">Войдите или зарегистрируйтесь, чтобы смотреть контент.</div>
+
+  <section class="card" id="authCard">
+    <h2>Вход и регистрация</h2>
+    <div class="row">
+      <input id="email" type="email" placeholder="email" autocomplete="username">
+      <input id="password" type="password" placeholder="пароль (от 8 символов)" autocomplete="current-password">
+      <button id="loginBtn">Войти</button>
+      <button id="registerBtn" class="secondary">Регистрация</button>
+    </div>
+  </section>
+
+  <section class="card hidden" id="accountCard">
+    <h2>Аккаунт</h2>
+    <div class="row">
+      <button id="subBasic" class="secondary">Подписка Basic (30 дней)</button>
+      <button id="subPremium" class="secondary">Подписка Premium (30 дней)</button>
+      <button id="logoutBtn" class="secondary">Выйти</button>
+    </div>
+    <p class="muted" style="margin:10px 0 0">Бесплатный контент доступен всем вошедшим пользователям, платный — только с активной подпиской.</p>
+  </section>
+
+  <section class="card hidden" id="adminCard">
+    <h2>Панель администратора: добавить видео</h2>
+    <form id="adminForm" class="grid">
+      <input id="aTitle" type="text" placeholder="название" required>
+      <input id="aDesc" type="text" placeholder="описание (необязательно)">
+      <div class="row">
+        <input id="aGenre" type="text" placeholder="жанр, например drama" required>
+        <input id="aYear" type="number" placeholder="год" min="1888" max="2100" value="2024" required style="max-width:110px">
+        <label class="muted"><input id="aFree" type="checkbox" checked style="flex:none"> бесплатно</label>
+      </div>
+      <input id="aFile" type="file" accept=".mp4,.mkv,.mov,.avi,.webm,video/*" required>
+      <div class="row"><button id="aSubmit" type="submit">Загрузить и опубликовать</button></div>
+      <progress id="aProgress" class="hidden" max="100" value="0" style="width:100%"></progress>
+    </form>
+    <p class="muted" style="margin:10px 0 0">После загрузки видео обрабатывается воркером (ffmpeg) и появляется в каталоге со статусом «опубликовано».</p>
+  </section>
+
+  <section class="card">
+    <h2>Каталог</h2>
+    <div class="row" style="margin-bottom:12px">
+      <input id="q" type="search" placeholder="поиск по названию">
+      <input id="genre" type="text" placeholder="жанр, например drama">
+      <button id="searchBtn">Найти</button>
+    </div>
+    <div class="items" id="items"></div>
+  </section>
+
+  <section class="card hidden" id="playerCard">
+    <h2 id="playerTitle">Плеер</h2>
+    <video id="video" controls playsinline></video>
+    <p class="muted" id="playerInfo" style="margin:8px 0 0"></p>
+  </section>
+
+  <section class="card hidden" id="historyCard">
+    <h2>История просмотров</h2>
+    <div id="history" class="muted"></div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<script>
+(() => {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const state = { token: null, email: null, hls: null, currentId: null, lastSaved: 0 };
+
+  // ---------- вспомогательное ----------
+  function say(text, kind) {
+    const el = $('status');
+    el.textContent = text;
+    el.className = kind || '';
+  }
+
+  async function api(method, path, body) {
+    const headers = {};
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+
+    const res = await fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+    if (res.status === 204) return null;
+
+    let data = null;
+    try { data = await res.json(); } catch (_) { /* пустое тело */ }
+    if (!res.ok) {
+      const err = new Error((data && data.error) || ('Ошибка ' + res.status));
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function el(tag, props, ...children) {
+    const node = document.createElement(tag);
+    Object.assign(node, props || {});
+    for (const c of children) node.append(c);
+    return node;
+  }
+
+  function fmtTime(sec) {
+    const m = Math.floor(sec / 60), s = sec % 60;
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  // роль читается из JWT только для показа панели; права всё равно проверяет сервер
+  function roleOf(token) {
+    try {
+      const p = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      return JSON.parse(atob(p)).role;
+    } catch (_) { return null; }
+  }
+
+  // ---------- авторизация ----------
+  function setSession(token, email) {
+    state.token = token;
+    state.email = email;
+    const logged = !!token;
+    $('whoami').textContent = logged ? email : 'Не авторизован';
+    $('authCard').classList.toggle('hidden', logged);
+    $('accountCard').classList.toggle('hidden', !logged);
+    $('historyCard').classList.toggle('hidden', !logged);
+    $('adminCard').classList.toggle('hidden', !(logged && roleOf(token) === 'admin'));
+    if (logged) loadHistory(); else stopPlayer();
+  }
+
+  function credentials() {
+    return { email: $('email').value.trim(), password: $('password').value };
+  }
+
+  async function login() {
+    const c = credentials();
+    try {
+      const r = await api('POST', '/auth/login', c);
+      setSession(r.token, c.email);
+      say('Вход выполнен.', 'ok');
+    } catch (e) { say(e.message, 'err'); }
+  }
+
+  async function register() {
+    const c = credentials();
+    try {
+      await api('POST', '/auth/register', c);
+      say('Регистрация успешна, выполняю вход…', 'ok');
+      await login();
+    } catch (e) { say(e.message, 'err'); }
+  }
+
+  async function subscribe(planId, name) {
+    try {
+      const s = await api('POST', '/subscriptions', { plan_id: planId });
+      const until = new Date(s.ends_at).toLocaleDateString('ru-RU');
+      say('Подписка ' + name + ' оформлена, действует до ' + until + '.', 'ok');
+    } catch (e) { say(e.message, 'err'); }
+  }
+
+  // ---------- каталог ----------
+  async function loadCatalog() {
+    const params = new URLSearchParams();
+    if ($('q').value.trim()) params.set('q', $('q').value.trim());
+    if ($('genre').value.trim()) params.set('genre', $('genre').value.trim());
+    try {
+      const data = await api('GET', '/content?' + params);
+      renderCatalog(data.items);
+    } catch (e) { say(e.message, 'err'); }
+  }
+
+  function renderCatalog(items) {
+    const box = $('items');
+    box.replaceChildren();
+    if (!items.length) {
+      box.append(el('div', { className: 'muted', textContent: 'Ничего не найдено.' }));
+      return;
+    }
+    for (const c of items) {
+      const badge = el('span', { className: 'badge' + (c.is_free ? ' free' : ''), textContent: c.is_free ? 'бесплатно' : 'по подписке' });
+      const btn = el('button', { textContent: 'Смотреть' });
+      btn.addEventListener('click', () => watch(c));
+      box.append(el('div', { className: 'item' },
+        el('h3', { textContent: c.title }),
+        el('div', { className: 'muted', textContent: c.genre + ', ' + c.release_year }),
+        el('div', { textContent: c.description || '' }),
+        el('div', {}, badge),
+        btn));
+    }
+  }
+
+  // ---------- плеер ----------
+  function stopPlayer() {
+    if (state.hls) { state.hls.destroy(); state.hls = null; }
+    const v = $('video');
+    v.pause();
+    v.removeAttribute('src');
+    v.load();
+    state.currentId = null;
+    $('playerCard').classList.add('hidden');
+  }
+
+  async function watch(content) {
+    if (!state.token) { say('Сначала войдите в аккаунт.', 'err'); return; }
+    try {
+      // 1) сервер проверяет права и выдаёт подписанный URL манифеста
+      const r = await api('POST', '/content/' + content.id + '/stream');
+      const left = Math.max(0, r.expires_at - Math.floor(Date.now() / 1000));
+
+      // 2) последняя позиция берётся из истории просмотров
+      const hist = await api('GET', '/me/history');
+      const prev = hist.items.find((h) => h.content_id === content.id);
+      const startAt = prev ? prev.position_seconds : 0;
+
+      play(content, r.url, startAt);
+      say('Доступ разрешён. Ссылка действует ещё ' + left + ' с.', 'ok');
+    } catch (e) {
+      say(e.status === 403 ? 'Доступ запрещён: ' + e.message : e.message, 'err');
+    }
+  }
+
+  function play(content, url, startAt) {
+    stopPlayer();
+    state.currentId = content.id;
+    state.lastSaved = 0;
+    $('playerCard').classList.remove('hidden');
+    $('playerTitle').textContent = content.title;
+    $('playerInfo').textContent = startAt > 0 ? 'Продолжаем с ' + fmtTime(startAt) : '';
+
+    const v = $('video');
+    const seek = () => { if (startAt > 0) v.currentTime = startAt; };
+
+    if (window.Hls && Hls.isSupported()) {
+      state.hls = new Hls();
+      state.hls.loadSource(url);
+      state.hls.attachMedia(v);
+      state.hls.on(Hls.Events.MANIFEST_PARSED, () => { seek(); v.play().catch(() => {}); });
+      state.hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) say('Ошибка воспроизведения: ' + d.details, 'err'); });
+    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+      v.src = url; // Safari воспроизводит HLS сам
+      v.addEventListener('loadedmetadata', seek, { once: true });
+      v.play().catch(() => {});
+    } else {
+      say('Браузер не поддерживает HLS.', 'err');
+    }
+    $('playerCard').scrollIntoView({ behavior: 'smooth' });
+  }
+
+  // позиция сохраняется не чаще раза в 10 секунд и при паузе
+  async function saveProgress(force) {
+    const v = $('video');
+    if (!state.token || state.currentId === null) return;
+    const pos = Math.floor(v.currentTime);
+    if (!force && Math.abs(pos - state.lastSaved) < 10) return;
+    state.lastSaved = pos;
+    try {
+      await api('PUT', '/content/' + state.currentId + '/progress', { position_seconds: pos });
+      loadHistory();
+    } catch (_) { /* прогресс — не критичная операция */ }
+  }
+
+  async function loadHistory() {
+    try {
+      const data = await api('GET', '/me/history');
+      const box = $('history');
+      box.replaceChildren();
+      if (!data.items.length) { box.textContent = 'Пока пусто.'; return; }
+      for (const h of data.items) {
+        const when = new Date(h.updated_at).toLocaleString('ru-RU');
+        box.append(el('div', { textContent: 'Контент #' + h.content_id + ' — остановились на ' + fmtTime(h.position_seconds) + ' (' + when + ')' }));
+      }
+    } catch (_) { /* токен мог истечь */ }
+  }
+
+  // ---------- панель администратора ----------
+  function uploadFile(id, file, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/content/' + id + '/media');
+      xhr.setRequestHeader('Authorization', 'Bearer ' + state.token);
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 100)); };
+      xhr.onload = () => {
+        let data = null;
+        try { data = JSON.parse(xhr.responseText); } catch (_) { /* пустое тело */ }
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+        else reject(new Error((data && data.error) || ('Ошибка ' + xhr.status)));
+      };
+      xhr.onerror = () => reject(new Error('Сеть недоступна или файл слишком большой'));
+      const fd = new FormData();
+      fd.append('file', file);
+      xhr.send(fd);
+    });
+  }
+
+  // в каталоге видны только опубликованные ролики, поэтому ждём появления нового
+  async function waitPublished(id, title) {
+    for (let i = 0; i < 90; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const data = await api('GET', '/content?per_page=50&q=' + encodeURIComponent(title));
+      if (data.items.some((c) => c.id === id)) return true;
+      say('Видео «' + title + '» обрабатывается… ' + (i + 1) * 2 + ' с', '');
+    }
+    return false;
+  }
+
+  async function adminSubmit(ev) {
+    ev.preventDefault();
+    const file = $('aFile').files[0];
+    if (!file) return;
+    const title = $('aTitle').value.trim();
+    const btn = $('aSubmit'), bar = $('aProgress');
+    btn.disabled = true;
+    try {
+      say('Создаю карточку…', '');
+      const c = await api('POST', '/content', {
+        title, description: $('aDesc').value.trim(), genre: $('aGenre').value.trim(),
+        release_year: Number($('aYear').value), is_free: $('aFree').checked,
+      });
+      bar.value = 0; bar.classList.remove('hidden');
+      say('Загружаю файл…', '');
+      await uploadFile(c.id, file, (p) => { bar.value = p; });
+      bar.classList.add('hidden');
+      const ok = await waitPublished(c.id, title);
+      if (ok) {
+        say('Видео «' + title + '» опубликовано, его можно смотреть в каталоге.', 'ok');
+        $('adminForm').reset();
+        loadCatalog();
+      } else {
+        say('Обработка заняла слишком долго или завершилась ошибкой. Проверьте: docker compose logs worker', 'err');
+      }
+    } catch (e) {
+      say(e.message, 'err');
+    } finally {
+      btn.disabled = false;
+      bar.classList.add('hidden');
+    }
+  }
+
+  // ---------- события ----------
+  $('loginBtn').addEventListener('click', login);
+  $('registerBtn').addEventListener('click', register);
+  $('logoutBtn').addEventListener('click', () => { setSession(null, null); say('Вы вышли из аккаунта.'); });
+  $('subBasic').addEventListener('click', () => subscribe(1, 'Basic'));
+  $('subPremium').addEventListener('click', () => subscribe(2, 'Premium'));
+  $('adminForm').addEventListener('submit', adminSubmit);
+  $('searchBtn').addEventListener('click', loadCatalog);
+  $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadCatalog(); });
+  $('genre').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadCatalog(); });
+  $('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
+  $('video').addEventListener('timeupdate', () => saveProgress(false));
+  $('video').addEventListener('pause', () => saveProgress(true));
+
+  loadCatalog();
+})();
+</script>
+</body>
+</html>
